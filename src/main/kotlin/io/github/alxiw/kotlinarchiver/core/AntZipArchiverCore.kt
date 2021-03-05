@@ -3,8 +3,14 @@ package io.github.alxiw.kotlinarchiver.core
 import org.apache.tools.zip.ZipEntry
 import org.apache.tools.zip.ZipFile
 import org.apache.tools.zip.ZipOutputStream
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileInputStream
 
-import java.io.*
+import java.io.FileOutputStream
+import java.io.UnsupportedEncodingException
+import kotlin.math.min
 
 class AntZipArchiverCore : ArchiverCore {
 
@@ -14,13 +20,13 @@ class AntZipArchiverCore : ArchiverCore {
     override fun pack(path: String, sources: Array<String>, comment: String?): Int {
         var errorCount = 0
 
-        ZipOutputStream(FileOutputStream(path)).use {
-            it.encoding = charset
+        ZipOutputStream(FileOutputStream(path)).use { zos ->
+            zos.encoding = charset
             comment?.let { comment ->
-                it.setComment(comment)
+                zos.setComment(comment)
             }
-            for (source in sources) {
-                errorCount += watchDir(it, source, "")
+            sources.forEach { source ->
+                errorCount += watchDir(zos, source, "")
             }
         }
 
@@ -34,15 +40,16 @@ class AntZipArchiverCore : ArchiverCore {
         val tempZip = File(path)
         tempZip.renameTo(File(tempPath))
 
-        ZipOutputStream(FileOutputStream(path)).use {
-            it.encoding = charset
-            reWriteZip(tempPath, it)
-            for (source in sources) {
-                errorCount += watchDir(it, source, "")
+        ZipOutputStream(FileOutputStream(path)).use { zos ->
+            zos.encoding = charset
+            rewriteZip(tempPath, zos)
+            sources.forEach { source ->
+                errorCount += watchDir(zos, source, "")
             }
         }
 
         File(tempPath).delete()
+
         return errorCount
     }
 
@@ -51,10 +58,10 @@ class AntZipArchiverCore : ArchiverCore {
         val tempZip = File(path)
         tempZip.renameTo(File(tempPath))
 
-        ZipOutputStream(FileOutputStream(path)).use {
-            it.encoding = charset
-            reWriteZip(tempPath, it)
-            it.setComment(comment)
+        ZipOutputStream(FileOutputStream(path)).use { zos ->
+            zos.encoding = charset
+            rewriteZip(tempPath, zos)
+            zos.setComment(comment)
         }
 
         File(tempPath).delete()
@@ -94,12 +101,11 @@ class AntZipArchiverCore : ArchiverCore {
         var info: String? = null
         val file = File(path)
         val fileLength = file.length().toInt()
-        val buffer = ByteArray(Math.min(fileLength, 16384))
+        val buffer = ByteArray(min(fileLength, 16384))
 
-        FileInputStream(file).use {
-            it.skip((fileLength - buffer.size).toLong())
-
-            val length = it.read(buffer)
+        FileInputStream(file).use { fis ->
+            fis.skip((fileLength - buffer.size).toLong())
+            val length = fis.read(buffer)
             if (length > 0) {
                 info = getZipCommentFromBuffer(buffer, length)
             }
@@ -112,12 +118,27 @@ class AntZipArchiverCore : ArchiverCore {
         var errorCount = 0
         if (path != null) {
             val filePath = File(path)
-            when {
-                filePath.isDirectory -> for (child in filePath.listFiles()) {
-                    errorCount += watchDir(zos, child.path, if (prefix !== "") prefix + File.separatorChar + filePath.name else filePath.name)
+            val listFiles = filePath.listFiles()
+            if (listFiles == null) {
+                errorCount++
+            } else {
+                when {
+                    filePath.isDirectory -> for (child in listFiles) {
+                        errorCount += watchDir(
+                            zos,
+                            child.path,
+                            if (prefix !== "") prefix + File.separatorChar + filePath.name else filePath.name
+                        )
+                    }
+                    filePath.exists() -> {
+                        archiveFile(
+                            zos,
+                            path,
+                            if (prefix !== "") prefix + File.separatorChar + filePath.name else filePath.name
+                        )
+                    }
+                    else -> errorCount++
                 }
-                filePath.exists() -> archiveFile(zos, path, if (prefix !== "") prefix + File.separatorChar + filePath.name else filePath.name)
-                else -> errorCount++
             }
         } else {
             errorCount++
@@ -130,9 +151,9 @@ class AntZipArchiverCore : ArchiverCore {
         var length: Int
         try {
             zos.putNextEntry(ZipEntry(outPath))
-            FileInputStream(srcPath).use {
+            FileInputStream(srcPath).use { fis ->
                 while (true) {
-                    length = it.read(buffer)
+                    length = fis.read(buffer)
                     if (length <= 0) break
                     zos.write(buffer, 0, length)
                 }
@@ -147,52 +168,53 @@ class AntZipArchiverCore : ArchiverCore {
         var length: Int
 
         FileOutputStream(outFile).use {
-            val bos = BufferedOutputStream(it, bufferSize)
-            val bis = BufferedInputStream(zip.getInputStream(entry))
-            try {
-                while (true) {
-                    length = bis.read(buffer, 0, bufferSize)
-                    if (length == -1) break
-                    bos.write(buffer, 0, length)
+            BufferedInputStream(zip.getInputStream(entry)).use { bis ->
+                BufferedOutputStream(it, bufferSize).use { bos ->
+                    try {
+                        while (true) {
+                            length = bis.read(buffer, 0, bufferSize)
+                            if (length == -1) break
+                            bos.write(buffer, 0, length)
+                        }
+                    } finally {
+                        bos.flush()
+                    }
                 }
-            } finally {
-                bis.close()
-                bos.flush()
-                bos.close()
             }
         }
-
     }
 
-    private fun reWriteZip(tempPath: String, zos: ZipOutputStream) {
+    private fun rewriteZip(tempPath: String, zos: ZipOutputStream) {
         val buffer = ByteArray(bufferSize)
         var length: Int
 
-        val sZip = ZipFile(tempPath, charset)
-        val zipFileEntries = sZip.entries
-        while (zipFileEntries.hasMoreElements()) {
-            val entry = zipFileEntries.nextElement() as ZipEntry
-            val currentEntry = entry.name
-            try {
-                zos.putNextEntry(ZipEntry(currentEntry))
-                BufferedInputStream(sZip.getInputStream(entry)).use {
-                    while (true) {
-                        length = it.read(buffer, 0, bufferSize)
-                        if (length == -1) break
-                        zos.write(buffer, 0, length)
+        ZipFile(tempPath, charset).use { sZip ->
+            val zipFileEntries = sZip.entries
+            while (zipFileEntries.hasMoreElements()) {
+                val entry = zipFileEntries.nextElement() as ZipEntry
+                val currentEntry = entry.name
+                try {
+                    zos.putNextEntry(ZipEntry(currentEntry))
+                    BufferedInputStream(sZip.getInputStream(entry)).use { bis ->
+                        while (true) {
+                            length = bis.read(buffer, 0, bufferSize)
+                            if (length == -1) {
+                                break
+                            }
+                            zos.write(buffer, 0, length)
+                        }
                     }
+                } finally {
+                    zos.closeEntry()
                 }
-            } finally {
-                zos.closeEntry()
             }
+            zos.setComment(getComment(tempPath))
         }
-        sZip.close()
-        zos.setComment(getComment(tempPath))
     }
 
     private fun getZipCommentFromBuffer(buffer: ByteArray, length: Int): String? {
         val magicDirEnd = byteArrayOf(0x50, 0x4b, 0x05, 0x06)
-        val bufferLength = Math.min(buffer.size, length)
+        val bufferLength = min(buffer.size, length)
         for (i in bufferLength - magicDirEnd.size - 22 downTo 0) {
             var isMagicStart = true
             for (k in magicDirEnd.indices) {
@@ -205,13 +227,13 @@ class AntZipArchiverCore : ArchiverCore {
                 val commentLength = buffer[i + 20] + buffer[i + 21] * 256
                 val realLength = bufferLength - i - 22
                 try {
-                    return String(buffer, i + 22, Math.min(commentLength, realLength), Charsets.UTF_8)
+                    return String(buffer, i + 22, min(commentLength, realLength), Charsets.UTF_8)
                 } catch (e: UnsupportedEncodingException) {
                     e.printStackTrace()
                 }
             }
         }
+
         return null
     }
 }
-

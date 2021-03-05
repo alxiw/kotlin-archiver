@@ -1,13 +1,15 @@
 package io.github.alxiw.kotlinarchiver.parser
 
-import org.apache.commons.cli.*
+import org.apache.commons.cli.DefaultParser
+import org.apache.commons.cli.Option
+import org.apache.commons.cli.Options
+import org.apache.commons.cli.ParseException
 
 class CommandParser(private val args: Array<String>) {
 
     private val options = Options()
 
     init {
-
         val pck = Option("p", "pack", false, "Pack")
         val add = Option("a", "add", false, "Add")
         val ext = Option("e", "extract", false, "Extract")

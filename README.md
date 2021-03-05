@@ -59,8 +59,8 @@ Use the following arguments to perform the appropriate action (square brackets m
 
 The following dependencies are used in the project:
 
-- [Kotlin](https://github.com/JetBrains/kotlin) 1.3.31
-- [Apache Ant](https://github.com/apache/ant) 1.10.5
+- [Kotlin](https://github.com/JetBrains/kotlin) 1.4.31
+- [Apache Ant](https://github.com/apache/ant) 1.10.9
 - [Apache Commons CLI](https://github.com/apache/commons-cli) 1.4
 
 ## License

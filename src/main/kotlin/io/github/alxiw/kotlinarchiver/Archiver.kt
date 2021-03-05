@@ -1,7 +1,6 @@
 package io.github.alxiw.kotlinarchiver
 
 import io.github.alxiw.kotlinarchiver.controller.ArchiverController
-import io.github.alxiw.kotlinarchiver.exceptions.ArchiveException
 import io.github.alxiw.kotlinarchiver.parser.Actions
 import io.github.alxiw.kotlinarchiver.parser.Command
 import io.github.alxiw.kotlinarchiver.parser.CommandParser
@@ -36,7 +35,9 @@ fun main(args: Array<String>) {
 
 private fun printHelpMessage() {
     println("Available actions in the command line")
-    for (i in 0 until Actions.values().size) {
+    for (i in Actions.values().indices) {
         println("${i + 1}. ${Actions.values()[i].action}\n   ${Actions.values()[i].format}")
     }
 }
+
+class ArchiveException : Throwable()
